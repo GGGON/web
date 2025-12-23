@@ -38,12 +38,59 @@ function extractImage(res: any) {
   return null
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
+async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = reject
-    reader.readAsDataURL(file)
+    const img = new window.Image() // browser API
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      let width = img.width
+      let height = img.height
+      
+      // Volcengine requires minimum 3,686,400 pixels
+      const MIN_PIXELS = 3686400
+      const currentPixels = width * height
+      
+      // Max dimension to avoid huge payloads (Netlify 6MB limit)
+      // 3072x3072 = 9MP. JPEG 0.8 ~1-2MB. Safe.
+      const MAX_DIMENSION = 3072 
+      
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        const ratio = width / height
+        if (width > height) {
+          width = MAX_DIMENSION
+          height = Math.round(width / ratio)
+        } else {
+          height = MAX_DIMENSION
+          width = Math.round(height * ratio)
+        }
+      }
+      
+      // If we downscaled below minimum, verify and adjust
+      // Only if original was large enough. If original is small, we can't do much (API will reject)
+      if (width * height < MIN_PIXELS && currentPixels >= MIN_PIXELS) {
+         const scale = Math.sqrt(MIN_PIXELS / (width * height))
+         width = Math.ceil(width * scale)
+         height = Math.ceil(height * scale)
+      }
+
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Canvas context not available'))
+        return
+      }
+      
+      // White background for transparent PNGs
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(img, 0, 0, width, height)
+      
+      // Compress to JPEG 0.8
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    img.onerror = () => reject(new Error('Failed to load image'))
+    img.src = URL.createObjectURL(file)
   })
 }
 
@@ -63,10 +110,17 @@ export default function Home() {
     const f = e.target.files && e.target.files[0]
     if (!f) return
     setFile(f)
-    const url = await fileToDataUrl(f)
-    setPreview(url)
-    setResult(null)
-    setError('')
+    
+    try {
+      // Use compressed image for both preview and API to save memory/bandwidth
+      const url = await compressImage(f)
+      setPreview(url)
+      setResult(null)
+      setError('')
+    } catch (e) {
+      console.error(e)
+      setError('Failed to process image')
+    }
   }
 
   async function onGenerate() {
@@ -187,10 +241,10 @@ export default function Home() {
                 value={size} 
                 onChange={e => setSize(e.target.value)}
               >
-                <option value="2K">2K (2048x2048)</option>
-                <option value="3K">3K (3072x3072)</option>
-                <option value="1440x2560">竖屏 (9:16)</option>
-                <option value="2560x1440">横屏 (16:9)</option>
+                <option value="2K">方形 (2048x2048)</option>
+                <option value="3K">方形 (3072x3072)</option>
+                <option value="1440x2560">竖屏 9:16 (1440x2560)</option>
+                <option value="2560x1440">横屏 16:9 (2560x1440)</option>
               </select>
             </div>
           </div>

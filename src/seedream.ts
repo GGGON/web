@@ -27,6 +27,9 @@ function normalizeSize(size?: string): string {
 function ensureApiKey(apiKey?: string): string {
   const key = apiKey || process.env.VOLC_ARK_API_KEY
   if (!key) throw new Error('missing api key')
+  if (/[\u0080-\uffff]/.test(key)) {
+    throw new Error('invalid api key: contains non-ASCII characters')
+  }
   return key
 }
 
