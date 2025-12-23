@@ -94,12 +94,19 @@ async function compressImage(file: File): Promise<string> {
   })
 }
 
-export default function Home() {
-  const [file, setFile] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [result, setResult] = useState<string | null>(null)
+type Task = {
+    id: string
+    file: File
+    preview: string
+    status: 'pending' | 'generating' | 'success' | 'error'
+    result?: string
+    error?: string
+  }
+
+  export default function Home() {
+  const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [globalError, setGlobalError] = useState('')
   const [size, setSize] = useState('2K')
   const [apiKey, setApiKey] = useState('')
   const [addHats, setAddHats] = useState(true)
@@ -107,69 +114,97 @@ export default function Home() {
   const [intensity, setIntensity] = useState<'natural' | 'strong'>('natural')
 
   async function onChangeFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files && e.target.files[0]
-    if (!f) return
-    setFile(f)
+    const files = e.target.files
+    if (!files || files.length === 0) return
     
-    try {
-      // Use compressed image for both preview and API to save memory/bandwidth
-      const url = await compressImage(f)
-      setPreview(url)
-      setResult(null)
-      setError('')
-    } catch (e) {
-      console.error(e)
-      setError('Failed to process image')
+    const newTasks: Task[] = []
+    
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      try {
+        // Use compressed image for both preview and API to save memory/bandwidth
+        const url = await compressImage(f)
+        newTasks.push({
+          id: Math.random().toString(36).substring(7),
+          file: f,
+          preview: url,
+          status: 'pending'
+        })
+      } catch (e) {
+        console.error(e)
+        // If compression fails, we skip this file or add error task
+      }
     }
+    
+    setTasks(prev => [...prev, ...newTasks])
+    setGlobalError('')
   }
 
   async function onGenerate() {
-    try {
-      if (!file || !preview) return
-      setLoading(true)
-      setError('')
-      setResult(null)
-      const prompt = buildPrompt({ addHats, enhanceEnv, intensity })
-      const res = await fetch('/api/ai/i2i', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: preview,
-          prompt,
-          size,
-          apiKey,
-          response_format: 'url',
-          sequential: 'disabled',
-        }),
-      })
-      const jd = await res.json()
-      if (!res.ok) {
-        setError(jd && jd.error ? String(jd.error) : '请求失败')
-        setLoading(false)
-        return
+    if (tasks.filter(t => t.status === 'pending' || t.status === 'error').length === 0) return
+    
+    setLoading(true)
+    setGlobalError('')
+    
+    // Process tasks one by one or in parallel
+    // Here we do parallel but limits could be applied if needed
+    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'error')
+    
+    // Update status to generating
+    setTasks(prev => prev.map(t => 
+      pendingTasks.find(pt => pt.id === t.id) ? { ...t, status: 'generating', error: undefined } : t
+    ))
+
+    const prompt = buildPrompt({ addHats, enhanceEnv, intensity })
+    
+    await Promise.all(pendingTasks.map(async (task) => {
+      try {
+        const res = await fetch('/api/ai/i2i', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: task.preview,
+            prompt,
+            size,
+            apiKey,
+            response_format: 'url',
+            sequential: 'disabled',
+          }),
+        })
+        const jd = await res.json()
+        if (!res.ok) {
+          throw new Error(jd && jd.error ? String(jd.error) : '请求失败')
+        }
+        const out = extractImage(jd)
+        if (!out) {
+          throw new Error('未返回图片')
+        }
+        
+        setTasks(prev => prev.map(t => 
+          t.id === task.id ? { ...t, status: 'success', result: out } : t
+        ))
+      } catch (e: any) {
+        const errMsg = String(e && e.message ? e.message : e)
+        setTasks(prev => prev.map(t => 
+          t.id === task.id ? { ...t, status: 'error', error: errMsg } : t
+        ))
       }
-      const out = extractImage(jd)
-      if (!out) {
-        setError('未返回图片')
-        setLoading(false)
-        return
-      }
-      setResult(out)
-      setLoading(false)
-    } catch (e: any) {
-      setError(String(e && e.message ? e.message : e))
-      setLoading(false)
-    }
+    }))
+    
+    setLoading(false)
   }
 
-  function downloadImage() {
-    if (!result) return
+  function downloadImage(url: string) {
     const link = document.createElement('a')
-    link.href = result
+    link.href = url
     link.download = `christmas-magic-${Date.now()}.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  function removeTask(id: string) {
+    setTasks(prev => prev.filter(t => t.id !== id))
   }
 
   return (
@@ -188,10 +223,10 @@ export default function Home() {
 
         <div className={styles.card}>
           <label className={styles.uploadArea}>
-            <input type="file" accept="image/*" onChange={onChangeFile} style={{ display: 'none' }} />
+            <input type="file" multiple accept="image/*" onChange={onChangeFile} style={{ display: 'none' }} />
             <div className={styles.uploadIcon}>📸</div>
             <div className={styles.uploadText}>
-              {file ? file.name : '点击上传照片'}
+              {tasks.length > 0 ? `已选择 ${tasks.length} 张照片` : '点击上传照片 (支持多选)'}
             </div>
           </label>
 
@@ -262,58 +297,71 @@ export default function Home() {
           <button 
             className={styles.generateBtn}
             onClick={onGenerate} 
-            disabled={!preview || loading}
+            disabled={tasks.length === 0 || loading}
           >
-            {loading ? '正在施展魔法...' : '生成圣诞照片'}
+            {loading ? '正在施展魔法...' : `生成圣诞照片 (${tasks.filter(t => t.status === 'pending').length})`}
           </button>
 
-          {error && <div className={styles.error}>{error}</div>}
+          {globalError && <div className={styles.error}>{globalError}</div>}
         </div>
 
-        <div className={styles.resultArea}>
-          <div className={styles.imageCard}>
-            <div className={styles.imageHeader}>原始照片</div>
-            <div className={styles.imageWrapper}>
-              {preview ? (
-                <Image 
-                  src={preview} 
-                  alt="原始预览" 
-                  fill
-                  style={{ objectFit: 'contain' }}
-                />
-              ) : (
-                <div className={styles.emptyState}>暂无图片</div>
-              )}
-            </div>
-          </div>
+        <div className={styles.resultList}>
+          {tasks.map(task => (
+            <div key={task.id} className={styles.taskItem}>
+              <button className={styles.removeBtn} onClick={() => removeTask(task.id)} title="移除">×</button>
+              <div className={styles.resultArea}>
+                <div className={styles.imageCard}>
+                  <div className={styles.imageHeader}>原始照片</div>
+                  <div className={styles.imageWrapper}>
+                    <Image 
+                      src={task.preview} 
+                      alt="原始预览" 
+                      fill
+                      style={{ objectFit: 'contain' }}
+                    />
+                  </div>
+                </div>
 
-          <div className={styles.imageCard}>
-            <div className={styles.imageHeader}>
-              <span>圣诞版本</span>
-              {result && (
-                <button 
-                  className={styles.downloadBtn} 
-                  onClick={downloadImage}
-                  title="下载图片"
-                >
-                  ⬇️ 下载
-                </button>
-              )}
+                <div className={styles.imageCard}>
+                  <div className={styles.imageHeader}>
+                    <span>圣诞版本</span>
+                    {task.result && (
+                      <button 
+                        className={styles.downloadBtn} 
+                        onClick={() => downloadImage(task.result!)}
+                        title="下载图片"
+                      >
+                        ⬇️ 下载
+                      </button>
+                    )}
+                  </div>
+                  <div className={styles.imageWrapper}>
+                    {task.status === 'generating' ? (
+                      <div className={styles.emptyState}>
+                        <div className={styles.spinner} style={{width: 24, height: 24, borderWidth: 2}} />
+                        <span style={{marginLeft: 8}}>生成中...</span>
+                      </div>
+                    ) : task.result ? (
+                      <Image 
+                        src={task.result} 
+                        alt="AI 生成结果" 
+                        fill
+                        style={{ objectFit: 'contain' }}
+                        unoptimized
+                      />
+                    ) : task.status === 'error' ? (
+                       <div className={styles.emptyState} style={{color: 'var(--accent)', flexDirection: 'column', padding: 10}}>
+                         <div>生成失败</div>
+                         <div style={{fontSize: 10, marginTop: 4}}>{task.error}</div>
+                       </div>
+                    ) : (
+                      <div className={styles.emptyState}>等待生成</div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className={styles.imageWrapper}>
-              {result ? (
-                <Image 
-                  src={result} 
-                  alt="AI 生成结果" 
-                  fill
-                  style={{ objectFit: 'contain' }}
-                  unoptimized
-                />
-              ) : (
-                <div className={styles.emptyState}>结果将显示在这里</div>
-              )}
-            </div>
-          </div>
+          ))}
         </div>
       </main>
     </div>
