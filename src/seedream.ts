@@ -18,6 +18,7 @@ function normalizeSize(size?: string): string {
   if (!size) return '2048x2048'
   if (size === '1K') return '2048x2048'
   if (size === '2K') return '2048x2048'
+  if (size === '3K') return '3072x3072'
   if (size === '4K') return '4096x4096'
   if (validatePixelSize(size)) return size
   throw new Error(`invalid size: ${size}`)

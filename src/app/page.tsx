@@ -187,8 +187,8 @@ export default function Home() {
                 value={size} 
                 onChange={e => setSize(e.target.value)}
               >
-                <option value="2K">方形 (2048x2048)</option>
-                <option value="4K">方形 (4096x4096)</option>
+                <option value="2K">2K (2048x2048)</option>
+                <option value="3K">3K (3072x3072)</option>
                 <option value="1440x2560">竖屏 (9:16)</option>
                 <option value="2560x1440">横屏 (16:9)</option>
               </select>
