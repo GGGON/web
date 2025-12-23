@@ -54,29 +54,50 @@ async function compressImage(file: File): Promise<string> {
       
       const MAX_DIMENSION = 4096 // Safe limit within 6000px to ensure performance and file size
       
-      // Check ratio [1/16, 16]
-      const ratio = width / height
-      if (ratio < 1/16 || ratio > 16) {
-        // Simple crop to fit ratio could be complex, for now we assume user provides reasonable images
-        // or we clamp dimensions if needed. But let's just handle max dimension.
+      let srcWidth = img.width
+      let srcHeight = img.height
+      let srcX = 0
+      let srcY = 0
+      
+      // 1. Enforce Ratio [1/16, 16] via Center Crop
+      // 1/16 = 0.0625
+      const currentRatio = srcWidth / srcHeight
+      
+      if (currentRatio < 1/16) {
+        // Too tall (e.g. 1:20). Crop height to fit 1:16.
+        // newHeight = width * 16
+        const newSrcHeight = srcWidth * 16
+        srcY = (srcHeight - newSrcHeight) / 2
+        srcHeight = newSrcHeight
+      } else if (currentRatio > 16) {
+        // Too wide (e.g. 20:1). Crop width to fit 16:1.
+        // newWidth = height * 16
+        const newSrcWidth = srcHeight * 16
+        srcX = (srcWidth - newSrcWidth) / 2
+        srcWidth = newSrcWidth
       }
 
-      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-        if (width > height) {
-          width = MAX_DIMENSION
-          height = Math.round(width / ratio)
+      // 2. Calculate Output Dimensions (Scaling)
+      let targetWidth = srcWidth
+      let targetHeight = srcHeight
+
+      if (targetWidth > MAX_DIMENSION || targetHeight > MAX_DIMENSION) {
+        const ratio = targetWidth / targetHeight
+        if (targetWidth > targetHeight) {
+          targetWidth = MAX_DIMENSION
+          targetHeight = Math.round(targetWidth / ratio)
         } else {
-          height = MAX_DIMENSION
-          width = Math.round(height * ratio)
+          targetHeight = MAX_DIMENSION
+          targetWidth = Math.round(targetHeight * ratio)
         }
       }
       
-      // Ensure min dimension > 14
-      if (width < 15) width = 15
-      if (height < 15) height = 15
+      // 3. Ensure Min Dimension > 14
+      if (targetWidth < 15) targetWidth = 15
+      if (targetHeight < 15) targetHeight = 15
 
-      canvas.width = width
-      canvas.height = height
+      canvas.width = targetWidth
+      canvas.height = targetHeight
       const ctx = canvas.getContext('2d')
       if (!ctx) {
         reject(new Error('Canvas context not available'))
@@ -85,8 +106,11 @@ async function compressImage(file: File): Promise<string> {
       
       // White background for transparent PNGs
       ctx.fillStyle = '#FFFFFF'
-      ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(img, 0, 0, width, height)
+      ctx.fillRect(0, 0, targetWidth, targetHeight)
+      
+      // Draw with cropping/scaling
+      // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+      ctx.drawImage(img, srcX, srcY, srcWidth, srcHeight, 0, 0, targetWidth, targetHeight)
       
       // Compress to JPEG 0.8
       // Netlify Functions have a request body limit of 6MB.
