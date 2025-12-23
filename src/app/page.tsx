@@ -89,14 +89,35 @@ async function compressImage(file: File): Promise<string> {
       ctx.drawImage(img, 0, 0, width, height)
       
       // Compress to JPEG 0.8
-      // Check file size < 10MB (approx 10485760 bytes)
-      // Base64 overhead is ~33%, so safe limit for base64 string is ~13.3MB
+      // Netlify Functions have a request body limit of 6MB.
+      // Base64 overhead is ~33%, so the string length must be < 6MB.
+      // To be safe, we limit to ~4.5MB (4,718,592 chars).
       let quality = 0.8
       let dataUrl = canvas.toDataURL('image/jpeg', quality)
       
-      while (dataUrl.length > 13000000 && quality > 0.1) {
+      const MAX_PAYLOAD_SIZE = 4500000
+      
+      while (dataUrl.length > MAX_PAYLOAD_SIZE && quality > 0.1) {
         quality -= 0.1
         dataUrl = canvas.toDataURL('image/jpeg', quality)
+      }
+      
+      // If still too large after quality reduction, scale down
+      if (dataUrl.length > MAX_PAYLOAD_SIZE) {
+         let scale = 0.9
+         while (dataUrl.length > MAX_PAYLOAD_SIZE && scale > 0.1) {
+            const tempCanvas = document.createElement('canvas')
+            tempCanvas.width = Math.floor(width * scale)
+            tempCanvas.height = Math.floor(height * scale)
+            const tempCtx = tempCanvas.getContext('2d')
+            if (tempCtx) {
+                tempCtx.fillStyle = '#FFFFFF'
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height)
+                tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height)
+                dataUrl = tempCanvas.toDataURL('image/jpeg', quality) // use last quality
+            }
+            scale -= 0.1
+         }
       }
       
       resolve(dataUrl)
