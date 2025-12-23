@@ -182,8 +182,8 @@ export default function Home() {
       
       <main className={styles.container}>
         <div className={styles.header}>
-          <h1 className={styles.title}>圣诞魔法工坊</h1>
-          <p className={styles.subtitle}>用 AI 让你的照片充满节日氛围</p>
+          <h1 className={styles.title}>🎄 圣诞魔法工坊 🎅</h1>
+          <p className={styles.subtitle}>✨ 用 AI 让你的照片充满节日氛围 ✨</p>
         </div>
 
         <div className={styles.card}>
