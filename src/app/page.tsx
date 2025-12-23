@@ -162,6 +162,16 @@ export default function Home() {
     }
   }
 
+  function downloadImage() {
+    if (!result) return
+    const link = document.createElement('a')
+    link.href = result
+    link.download = `christmas-magic-${Date.now()}.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className={styles.page}>
       {loading && (
@@ -278,7 +288,18 @@ export default function Home() {
           </div>
 
           <div className={styles.imageCard}>
-            <div className={styles.imageHeader}>圣诞版本</div>
+            <div className={styles.imageHeader}>
+              <span>圣诞版本</span>
+              {result && (
+                <button 
+                  className={styles.downloadBtn} 
+                  onClick={downloadImage}
+                  title="下载图片"
+                >
+                  ⬇️ 下载
+                </button>
+              )}
+            </div>
             <div className={styles.imageWrapper}>
               {result ? (
                 <Image 

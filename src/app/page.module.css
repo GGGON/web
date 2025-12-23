@@ -217,6 +217,25 @@
   align-items: center;
 }
 
+.downloadBtn {
+  background: none;
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--primary);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.downloadBtn:hover {
+  background: rgba(22, 91, 51, 0.1);
+  transform: translateY(-1px);
+}
+
 .imageWrapper {
   position: relative;
   width: 100%;
